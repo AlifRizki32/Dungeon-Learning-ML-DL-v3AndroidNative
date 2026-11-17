@@ -1,0 +1,9 @@
+[package]
+name = "dungeon-core"
+version.workspace = true
+edition.workspace = true
+description = "Logika murni game Dungeon Learning v3 (XP, level, lesson, review, spellbook, camp) — tanpa dependensi Android"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+dungeon-data = { path = "../dungeon-data" }

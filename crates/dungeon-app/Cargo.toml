@@ -1,0 +1,38 @@
+[package]
+name = "dungeon-app"
+version.workspace = true
+edition.workspace = true
+description = "Aplikasi Android Dungeon Learning v3 (NativeActivity, Rust) — satu-satunya lapis yang menyentuh Android"
+license = "MIT OR Apache-2.0"
+
+[lib]
+# NativeActivity dimuat sebagai shared library oleh Android.
+crate-type = ["cdylib"]
+
+[dependencies]
+dungeon-core = { path = "../dungeon-core" }
+dungeon-data = { path = "../dungeon-data" }
+
+# android-activity hanya untuk target Android: ndk-sys (dependensinya)
+# menolak compile di host. Pola ini standar untuk aplikasi NativeActivity —
+# di host, dungeon-app ter-compile sebagai lib kosong (lihat lib.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+android-activity.workspace = true
+
+# Konfigurasi pengemas Android (cargo-apk 0.10, SDD Bagian 14).
+# [package.metadata.android] di-flatten ke AndroidManifest oleh cargo-apk.
+# ID paket TERKUNCI: dungeonlearning.app — bukan id.dungeonlearning.app.
+# targetSdk 36 / minSdk 29 (keputusan Jamal 17 Nov 2026), potret terkunci.
+[package.metadata.android]
+package = "dungeonlearning.app"
+build_targets = ["aarch64-linux-android"]
+
+[package.metadata.android.sdk]
+min_sdk_version = 29
+target_sdk_version = 36
+
+[package.metadata.android.application]
+label = "Dungeon Learning"
+
+[package.metadata.android.application.activity]
+orientation = "portrait"

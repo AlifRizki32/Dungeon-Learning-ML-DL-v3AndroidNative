@@ -1,0 +1,9 @@
+[package]
+name = "dungeon-data"
+version.workspace = true
+edition.workspace = true
+description = "Model data dan pemuat konten Dungeon Learning v3 (serde, JSON v2 dipakai ulang)"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+serde.workspace = true

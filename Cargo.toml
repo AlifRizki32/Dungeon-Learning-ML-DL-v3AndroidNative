@@ -1,0 +1,25 @@
+# Dungeon Learning ML & DL v3 — workspace Rust (scaffold M1)
+# Struktur mengikuti SDD v3 Bagian 6: tiga lapis.
+# Sumber kebenaran: SPEC.md (spec v1.2). ID paket dungeonlearning.app,
+# targetSdk 36, minSdk 29, orientasi potret terkunci, tanpa AI Mentor.
+# Toolkit UI BELUM diputuskan Jamal — tidak ada dependensi UI di workspace ini.
+
+[workspace]
+resolver = "2"
+members = [
+    "crates/dungeon-data",
+    "crates/dungeon-core",
+    "crates/dungeon-app",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+
+[workspace.dependencies]
+serde = { version = "1.0", features = ["derive"] }
+# android-activity = NativeActivity resmi komunitas Rust (SDD Bagian 5).
+# BUKAN toolkit UI — hanya entry point Android. UI (egui/wgpu) belum diputuskan.
+# Fitur "native-activity" WAJIB: crate ini tidak punya implementasi default
+# (tanpa game-activity/native-activity, compile gagal dengan compile_error!).
+android-activity = { version = "0.6", features = ["native-activity"] }

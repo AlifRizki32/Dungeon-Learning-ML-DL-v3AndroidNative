@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Dungeon Learning v3 — AndroidManifest (scaffold M1).
+     Sumber kebenaran: SPEC.md (spec v1.2) dan SDD Bagian 14.
+     - ID paket TERKUNCI: dungeonlearning.app (pakai n, tanpa awalan id.)
+     - targetSdk 36 (Android 16), minSdk 29 (Android 10)
+     - Orientasi potret terkunci untuk sementara (spec Bagian 2)
+     - Nama tampilan: Dungeon Learning
+     - Tanpa izin jaringan: v3.0 100% offline, tanpa AI Mentor.
+     Catatan: manifest yang masuk APK dihasilkan cargo-apk dari
+     [package.metadata.android] di Cargo.toml (bukan dari berkas ini);
+     berkas ini adalah cermin deklaratif yang harus cocok dengan
+     metadata itu. Ikon launcher belum ada di M1 — ditambah bersama
+     aset saat fase UI. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="dungeonlearning.app">
+
+    <uses-sdk
+        android:minSdkVersion="29"
+        android:targetSdkVersion="36" />
+
+    <application
+        android:label="Dungeon Learning"
+        android:theme="@android:style/Theme.NoTitleBar.Fullscreen"
+        android:allowBackup="true">
+        <activity
+            android:name="android.app.NativeActivity"
+            android:label="Dungeon Learning"
+            android:configChanges="orientation|keyboardHidden|screenSize"
+            android:screenOrientation="portrait"
+            android:exported="true">
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="dungeon_app" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

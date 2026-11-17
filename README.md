@@ -3,7 +3,10 @@
 Game belajar Machine Learning & Deep Learning berbentuk RPG dungeon 16-bit,
 sekarang ditulis ulang sebagai aplikasi **Android native dengan Rust**.
 
-> Status: M0 — instalasi toolchain (Rust + Android SDK) sedang berjalan.
+> Status: M1 — scaffold workspace Rust selesai (tiga crate, entry point
+> Android, manifest). Belum ada UI, belum ada logika game.
+> Toolchain M0 selesai: Rust 1.100.0 + Android SDK API 36, target
+> `aarch64-linux-android`.
 > Dokumen perencanaan: `SPEC.md` (sumber kebenaran tunggal), PRD & SDD ada di
 > repo v2 dan di arsip proyek.
 
