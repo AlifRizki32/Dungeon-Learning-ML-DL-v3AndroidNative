@@ -28,6 +28,10 @@ pollster = "0.4"
 # Tanggal lokal perangkat (bionic `localtime_r` memakai zona waktu sistem
 # Android; core tidak pernah membaca jam, jadi aplikasi yang memasoknya).
 libc = "0.2"
+# Logging ke logcat Android + panic hook (M3-fix): `log` dipakai di semua
+# jalur startup; `android_logger` hanya untuk target Android (di host
+# modul logging.rs no-op). Versi: log 0.4.35, android_logger 0.15.x.
+log = "0.4"
 
 # Build script (build.rs) mendekode font base64 di `assets/fonts/*.b64`
 # menjadi `.ttf` di OUT_DIR — lihat build.rs untuk alasannya.
@@ -38,6 +42,8 @@ base64 = "0.22"
 # menolak compile di host.
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity.workspace = true
+# Logger logcat (M3-fix) — hanya Android; di host modul logging.rs no-op.
+android_logger = "0.15"
 
 # Konfigurasi pengemas Android (cargo-apk 0.10, SDD Bagian 14).
 # [package.metadata.android] di-flatten ke AndroidManifest oleh cargo-apk.
@@ -61,3 +67,16 @@ orientation = "portrait"
 # `assets/fonts/*.ttf.b64` + `OFL.txt` (lihat build.rs: konektor GitHub
 # hanya mendorong berkas UTF-8). Font didekode saat build dan dibundel
 # ke dalam `.so` lewat `include_bytes!` — bukan aset APK terpisah.
+
+# Signing release (M3-fix): keystore DEBUG standar Android — HANYA
+# untuk APK uji. BUKAN keystore rilis Play (belum ada — lihat ui.md).
+# Tanpa config ini `cargo apk build --release` menolak menandatangani
+# dan APK release harus dirakit manual (M3: .so jadi terkompresi).
+# Kata sandi "android" adalah kredensial publik keystore debug standar.
+# Path absolut = keystore debug di VM pengerjaan ini; di mesin lain
+# sesuaikan (atau biarkan gagal jelas — build debug tidak terpengaruh).
+[package.metadata.android.signing.release]
+path = "/home/hatch/.android/debug.keystore"
+keystore_password = "android"
+key_alias = "androiddebugkey"
+key_password = "android"

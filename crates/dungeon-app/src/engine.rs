@@ -14,7 +14,7 @@
 //!   `WaitUntil` (hemat baterai saat layar diam).
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{Context, ViewportId};
 use winit::{
@@ -43,16 +43,30 @@ const CLEAR_COLOR: wgpu::Color = wgpu::Color {
 };
 
 /// Titik masuk Android: dipanggil dari `android_main` di `lib.rs`.
+///
+/// M3-fix: TIDAK ada lagi `expect()` di jalur ini. Kegagalan membuat
+/// event loop dicatat ke logcat lalu kembali aman (bukan panic → abort
+/// melewati batas FFI `android_main` → force close tanpa jejak).
 #[cfg(target_os = "android")]
 pub fn run_android(app: winit::platform::android::activity::AndroidApp) {
     use winit::platform::android::EventLoopBuilderExtAndroid;
 
-    let event_loop = EventLoop::<AppEvent>::with_user_event()
+    log::info!("membuat event loop winit…");
+    let event_loop = match EventLoop::<AppEvent>::with_user_event()
         .with_android_app(app)
         .build()
-        .expect("gagal membuat event loop winit");
+    {
+        Ok(el) => el,
+        Err(e) => {
+            log::error!("FATAL: gagal membuat event loop winit: {e:?}; aplikasi berhenti bersih");
+            return;
+        }
+    };
+    log::info!("event loop winit dibuat; membuat Engine…");
     let mut engine = Engine::new(&event_loop);
+    log::info!("Engine dibuat; masuk run_app");
     let _ = event_loop.run_app(&mut engine);
+    log::info!("run_app selesai");
 }
 
 /// State loop + grafis. Dibuat sekali per proses; window/surface
@@ -74,6 +88,18 @@ pub struct Engine {
     /// Kapan repaint berikutnya jatuh tempo (`None` = segera).
     next_repaint: Option<Instant>,
     destroyed: bool,
+    /// Error grafis terakhir (adapter/device gagal) — disimpan supaya
+    /// tidak diam-diam layar hitam: dicatat ke logcat dan, bila grafis
+    /// pulih, ditampilkan sebagai toast di layar (lihat
+    /// `ensure_graphics`). `None` = tidak ada error.
+    graphics_error: Option<String>,
+    /// Kapan terakhir mencoba `request_adapter` (cooldown 2 detik —
+    /// percobaan adapter tiap frame akan membanjiri log + CPU).
+    last_adapter_attempt: Option<Instant>,
+    /// Frame pertama sudah berhasil dipresentasikan (untuk log milestone).
+    first_frame_done: bool,
+    /// Pesan "grafis belum siap" sudah dicatat sekali (hindari spam log).
+    logged_no_graphics: bool,
 }
 
 #[allow(dead_code)] // `new` hanya dipakai dari `run_android` (cfg Android).
@@ -88,6 +114,7 @@ impl Engine {
         egui_ctx.set_request_repaint_callback(move |_| {
             let _ = wake_proxy.send_event(AppEvent::Repaint);
         });
+        log::info!("Engine::new: tema dipasang, App dibuat (layar awal: Title)");
         Self {
             egui_ctx,
             egui_state: None,
@@ -102,32 +129,71 @@ impl Engine {
             proxy,
             next_repaint: None,
             destroyed: false,
+            graphics_error: None,
+            last_adapter_attempt: None,
+            first_frame_done: false,
+            logged_no_graphics: false,
         }
     }
 
     /// Buat window + surface + device + renderer bila belum ada.
     /// Dipanggil dari `resumed` dan dari `RedrawRequested` bila
     /// surface hilang (mis. setelah `Suspended`).
+    ///
+    /// M3-fix: TIDAK ada lagi `expect()`/`unwrap()`/indeks `[0]` di
+    /// jalur ini. Setiap kegagalan dicatat ke logcat dan kembali aman
+    /// (coba lagi frame berikut) — bukan panic. Alasan tiap langkah:
+    /// - `create_window` bisa gagal bila activity belum sepenuhnya
+    ///   resumed (winit Android tidak menjamin native window ada).
+    /// - `create_surface` gagal bila native window belum tersedia
+    ///   (rwh 0.6 mengembalikan `Err`, bukan panic — tapi tetap harus
+    ///   ditangani, bukan `expect`).
+    /// - `request_adapter` gagal di HP tanpa Vulkan DAN tanpa GLES
+    ///   yang cocok (atau driver rusak) — dulu `return` diam-diam
+    ///   (layar hitam tanpa jejak); sekarang dicatat + disimpan di
+    ///   `graphics_error` + dicoba lagi max 1×/2 detik.
+    /// - `caps.formats` bisa kosong secara teori — dulu
+    ///   `.unwrap_or(caps.formats[0])` akan panic; sekarang fallback
+    ///   ke `Bgra8Unorm` bila kosong.
     fn ensure_graphics(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_none() {
-            let window = event_loop
+            match event_loop
                 .create_window(WindowAttributes::default().with_title("Dungeon Learning"))
-                .expect("gagal membuat window winit");
-            self.window = Some(Arc::new(window));
+            {
+                Ok(window) => {
+                    log::info!("window dibuat: {:?}", window.inner_size());
+                    self.window = Some(Arc::new(window));
+                }
+                Err(e) => {
+                    log::error!("gagal membuat window winit: {e:?}; coba lagi frame berikut");
+                    return;
+                }
+            }
         }
-        let window = self.window.clone().expect("window baru saja dibuat");
+        let Some(window) = self.window.clone() else {
+            return;
+        };
 
         if self.instance.is_none() {
             let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
             desc.backends = wgpu::Backends::all();
             self.instance = Some(wgpu::Instance::new(desc));
+            log::info!("wgpu Instance dibuat (backends=all: Vulkan + GLES)");
         }
-        let instance = self.instance.as_ref().expect("instance baru saja dibuat");
+        let Some(instance) = self.instance.as_ref() else {
+            return;
+        };
 
         if self.surface.is_none() {
             match instance.create_surface(Arc::clone(&window)) {
-                Ok(surface) => self.surface = Some(surface),
-                Err(_) => return, // belum resumed penuh; coba lagi di frame berikut
+                Ok(surface) => {
+                    log::info!("surface wgpu dibuat");
+                    self.surface = Some(surface);
+                }
+                Err(e) => {
+                    log::warn!("create_surface gagal ({e:?}); coba lagi frame berikut");
+                    return;
+                }
             }
             // egui-state dibuat ulang bersama window (clipboard/IME).
             self.egui_state = Some(egui_winit::State::new(
@@ -139,9 +205,21 @@ impl Engine {
                 None,
             ));
         }
-        let surface = self.surface.as_ref().expect("surface baru saja dibuat");
+        let Some(surface) = self.surface.as_ref() else {
+            return;
+        };
 
         if self.device.is_none() {
+            // Cooldown: jangan membanjiri log/CPU dengan percobaan
+            // adapter tiap frame bila HP memang tidak punya adapter.
+            let now = Instant::now();
+            if let Some(last) = self.last_adapter_attempt {
+                if now.duration_since(last) < Duration::from_secs(2) {
+                    return;
+                }
+            }
+            self.last_adapter_attempt = Some(now);
+
             let adapter = match pollster::block_on(instance.request_adapter(
                 &wgpu::RequestAdapterOptions {
                     power_preference: wgpu::PowerPreference::HighPerformance,
@@ -151,8 +229,20 @@ impl Engine {
                 },
             )) {
                 Ok(a) => a,
-                Err(_) => return, // belum ada adapter; coba lagi nanti
+                Err(e) => {
+                    let msg = format!("tidak ada adapter wgpu yang cocok: {e:?}");
+                    log::error!("{msg} (HP mungkin tanpa Vulkan & GLES cocok — lihat logcat)");
+                    self.graphics_error = Some(msg);
+                    return;
+                }
             };
+            let info = adapter.get_info();
+            log::info!(
+                "adapter ketemu: '{}' (backend {:?}, tipe {:?})",
+                info.name,
+                info.backend,
+                info.device_type
+            );
             let caps = surface.get_capabilities(&adapter);
             self.surface_format = caps
                 .formats
@@ -164,7 +254,14 @@ impl Engine {
                         wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm
                     )
                 })
-                .unwrap_or(caps.formats[0]);
+                .or_else(|| caps.formats.first().copied())
+                .unwrap_or_else(|| {
+                    log::warn!(
+                        "surface.get_capabilities mengembalikan formats kosong; pakai Bgra8Unorm"
+                    );
+                    wgpu::TextureFormat::Bgra8Unorm
+                });
+            log::info!("format surface: {:?}", self.surface_format);
             let (device, queue) = match pollster::block_on(adapter.request_device(
                 &wgpu::DeviceDescriptor {
                     label: Some("dungeon-device"),
@@ -175,8 +272,14 @@ impl Engine {
                 },
             )) {
                 Ok(pair) => pair,
-                Err(_) => return,
+                Err(e) => {
+                    let msg = format!("gagal membuat device wgpu: {e:?}");
+                    log::error!("{msg}");
+                    self.graphics_error = Some(msg);
+                    return;
+                }
             };
+            log::info!("device + queue wgpu dibuat");
             self.renderer = Some(egui_wgpu::Renderer::new(
                 &device,
                 self.surface_format,
@@ -184,6 +287,12 @@ impl Engine {
             ));
             self.device = Some(device);
             self.queue = Some(queue);
+            // Pulih dari error sebelumnya: beri tahu pengguna lewat
+            // toast di layar (grafis sudah jalan lagi sekarang).
+            if let Some(prev) = self.graphics_error.take() {
+                log::info!("grafis pulih setelah error sebelumnya: {prev}");
+                self.app.toast = Some(format!("Grafis sempat gagal lalu pulih: {prev}"));
+            }
         }
 
         self.configure_surface();
@@ -225,8 +334,18 @@ impl Engine {
             self.surface.as_ref(),
             self.renderer.as_mut(),
         ) else {
+            // Grafis belum siap (mis. adapter tidak ketemu): catat sekali
+            // saja (bukan tiap frame) supaya logcat tidak banjir.
+            if !self.logged_no_graphics {
+                self.logged_no_graphics = true;
+                log::warn!(
+                    "paint dilewati: grafis belum siap (error: {:?})",
+                    self.graphics_error
+                );
+            }
             return;
         };
+        self.logged_no_graphics = false;
         let Some(egui_state) = self.egui_state.as_mut() else {
             return;
         };
@@ -307,8 +426,20 @@ impl Engine {
         );
         queue.present(frame);
 
-        // Jadwalkan repaint berikutnya dari egui.
-        let delay = full_output.viewport_output[&ViewportId::ROOT].repaint_delay;
+        if !self.first_frame_done {
+            self.first_frame_done = true;
+            log::info!("frame pertama berhasil dipresentasikan (startup grafis selesai)");
+        }
+
+        // Jadwalkan repaint berikutnya dari egui. M3-fix: dulu memakai
+        // indeks `viewport_output[&ViewportId::ROOT]` yang panic bila
+        // kunci ROOT tidak ada (OrderedViewportIdMap); sekarang `.get()`
+        // dengan fallback delay nol (= repaint segera).
+        let delay = full_output
+            .viewport_output
+            .get(&ViewportId::ROOT)
+            .map(|o| o.repaint_delay)
+            .unwrap_or_default();
         if delay.is_zero() {
             self.next_repaint = None;
             event_loop.set_control_flow(ControlFlow::Poll);
@@ -322,6 +453,7 @@ impl Engine {
 
 impl ApplicationHandler<AppEvent> for Engine {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        log::info!("resumed: menyiapkan grafis…");
         self.ensure_graphics(event_loop);
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -329,6 +461,7 @@ impl ApplicationHandler<AppEvent> for Engine {
     }
 
     fn suspended(&mut self, event_loop: &ActiveEventLoop) {
+        log::info!("suspended: membuang window + surface (device dipertahankan)");
         // Android: buang window + surface saat dijeda; device dan
         // renderer dipertahankan, dibuat ulang saat resume.
         self.surface = None;
