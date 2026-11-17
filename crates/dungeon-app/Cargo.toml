@@ -13,9 +13,29 @@ crate-type = ["cdylib"]
 dungeon-core = { path = "../dungeon-core" }
 dungeon-data = { path = "../dungeon-data" }
 
+# UI: egui di atas wgpu (keputusan Jamal 17 Nov 2026, spec v1.3).
+# Versi ter-resolve 17 Nov 2026: egui 0.37.0, egui-wgpu 0.37.0,
+# egui-winit 0.37.0, wgpu 30.0.2, winit 0.30.13.
+# Dependensi ini target-agnostik: winit/egui/wgpu ter-compile di host
+# Linux juga, jadi `cargo check --workspace` di host memverifikasi
+# kode UI. Entry point Android tetap lewat android-activity.
+egui = "0.37"
+egui-wgpu = "0.37"
+egui-winit = "0.37"
+wgpu = "30"
+winit = { version = "0.30", features = ["android-native-activity"] }
+pollster = "0.4"
+# Tanggal lokal perangkat (bionic `localtime_r` memakai zona waktu sistem
+# Android; core tidak pernah membaca jam, jadi aplikasi yang memasoknya).
+libc = "0.2"
+
+# Build script (build.rs) mendekode font base64 di `assets/fonts/*.b64`
+# menjadi `.ttf` di OUT_DIR — lihat build.rs untuk alasannya.
+[build-dependencies]
+base64 = "0.22"
+
 # android-activity hanya untuk target Android: ndk-sys (dependensinya)
-# menolak compile di host. Pola ini standar untuk aplikasi NativeActivity —
-# di host, dungeon-app ter-compile sebagai lib kosong (lihat lib.rs).
+# menolak compile di host.
 [target.'cfg(target_os = "android")'.dependencies]
 android-activity.workspace = true
 
@@ -36,3 +56,8 @@ label = "Dungeon Learning"
 
 [package.metadata.android.application.activity]
 orientation = "portrait"
+
+# Font pixel (OFL) disimpan sebagai teks base64 di
+# `assets/fonts/*.ttf.b64` + `OFL.txt` (lihat build.rs: konektor GitHub
+# hanya mendorong berkas UTF-8). Font didekode saat build dan dibundel
+# ke dalam `.so` lewat `include_bytes!` — bukan aset APK terpisah.

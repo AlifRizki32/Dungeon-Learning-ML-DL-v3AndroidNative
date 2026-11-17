@@ -1,16 +1,20 @@
-//! `dungeon-app` — lapis aplikasi Android (scaffold M1).
+//! `dungeon-app` — lapis aplikasi Android (Fase 3: UI egui di atas wgpu).
 //!
 //! Satu-satunya crate yang menyentuh Android. Entry point memakai
-//! `android-activity` (NativeActivity, jalur resmi komunitas Rust).
+//! `android-activity` (NativeActivity) + winit 0.30 + egui 0.37 / wgpu 30.
+//! State game berasal dari `dungeon-core` (reducer); UI di `ui/` hanya
+//! mengirim `Action` dan menampilkan state + `Effect`.
 //!
-//! M1: placeholder — loop event minimal, belum ada UI, belum ada logika
-//! game, belum ada audio, belum ada penyimpanan, belum ada WebView.
-//! Toolkit UI (egui di atas wgpu, usulan SDD Bagian 5) BELUM diputuskan
-//! Jamal, jadi TIDAK ada dependensi UI di sini. Jangan tambah sebelum
-//! ada keputusan.
+//! M3: 9 layar v2 + 5 dialog dipetakan ke Android potret; tanpa audio
+//! (fase terpisah), tanpa penyimpanan Android (fase terpisah), tanpa
+//! WebView 3D (fase terpisah), tanpa AI Mentor.
+
+pub mod app;
+pub mod engine;
+pub mod ui;
 
 #[cfg(target_os = "android")]
-use android_activity::{AndroidApp, MainEvent, PollEvent};
+use android_activity::AndroidApp;
 
 /// Entry point NativeActivity. Dipanggil sistem Android saat activity dibuat.
 ///
@@ -19,15 +23,5 @@ use android_activity::{AndroidApp, MainEvent, PollEvent};
 #[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: AndroidApp) {
-    // M1: loop event minimal — tidak melakukan apa-apa selain menunggu
-    // activity dihancurkan. UI dan game loop ditulis di fase berikutnya.
-    // (android-activity 0.6: poll_events memakai callback, bukan return value.)
-    let mut destroyed = false;
-    while !destroyed {
-        app.poll_events(Some(std::time::Duration::from_millis(100)), |event| {
-            if matches!(event, PollEvent::Main(MainEvent::Destroy)) {
-                destroyed = true;
-            }
-        });
-    }
+    engine::run_android(app);
 }
